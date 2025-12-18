@@ -12,7 +12,6 @@ export default function Navbar() {
     <header className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-50">
       <div className="container mx-auto flex items-center justify-between py-4">
         <div className="flex items-center space-x-2">
-          <Trello />
           <span>Trello clone</span>
         </div>
         <div className="flex items-center space-x-2 sm:space-x-4">
