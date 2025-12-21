@@ -16,11 +16,28 @@ import { useBoard } from "@/lib/hooks/useBoards";
 import { SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar, MoreHorizontal, Plus, User } from "lucide-react";
 import { useParams } from "next/navigation";
-import React, { useState } from "react";
-import { columnWithTasks, Task as TaskType } from "@/lib/supabase/models";
+import React, { act, useState } from "react";
+import { columnWithTasks, Task, Task as TaskType } from "@/lib/supabase/models";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { DndContext, useDroppable } from "@dnd-kit/core";
+import {
+  DndContext,
+  DragEndEvent,
+  DragOverEvent,
+  DragOverlay,
+  DragStartEvent,
+  PointerSensor,
+  rectIntersection,
+  useDroppable,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 function DroppableColumn({
   column,
@@ -30,7 +47,7 @@ function DroppableColumn({
 }: {
   column?: columnWithTasks;
   children?: React.ReactNode;
-  onCreateTask?: (taskData: any) => Promise<void>;
+  onCreateTask?: (taskData: Task) => Promise<void>;
   onEditColumn?: (column: columnWithTasks) => void;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: column.id });
@@ -41,7 +58,11 @@ function DroppableColumn({
         isOver ? "bg-blue-50 rounded-lg" : ""
       }`}
     >
-      <div className="bg-white rounded-lg shadow-sm border">
+      <div
+        className={`bg-white rounded-lg shadow-sm border ${
+          isOver ? "ring-2 ring-blue-300" : ""
+        }`}
+      >
         <div className="border-b p-3">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center space-x-2 min-w-0">
@@ -124,7 +145,19 @@ function DroppableColumn({
 }
 
 function SortableTask({ task }: { task: TaskType }) {
-  // const {}
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transition,
+    transform,
+    isDragging,
+  } = useSortable({ id: task.id });
+  const styles = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
   function getPriorityColor(priority: "low" | "medium" | "high") {
     switch (priority) {
       case "low":
@@ -138,7 +171,7 @@ function SortableTask({ task }: { task: TaskType }) {
     }
   }
   return (
-    <div>
+    <div ref={setNodeRef} {...listeners} {...attributes} style={styles}>
       <Card className="cursor-pointer hover:shadow-md transition-shadow">
         <CardContent className="p-3">
           <div className="space-y-3">
@@ -180,11 +213,84 @@ function SortableTask({ task }: { task: TaskType }) {
   );
 }
 
+function TaskOverlay({ task }: { task: TaskType }) {
+  function getPriorityColor(priority: "low" | "medium" | "high") {
+    switch (priority) {
+      case "low":
+        return "bg-green-500";
+      case "medium":
+        return "bg-yellow-500";
+      case "high":
+        return "bg-red-500";
+      default:
+        return "bg-yellow-500";
+    }
+  }
+  return (
+    <Card className="cursor-pointer hover:shadow-md transition-shadow">
+      <CardContent className="p-3">
+        <div className="space-y-3">
+          <div className="flex justify-between items-start">
+            <h4 className="font-medium text-sm flex-1 leading-tight">
+              {task.title}
+            </h4>
+          </div>
+          <p className="text-xs text-gray-600 line-clamp-2">
+            {task.description || "no description"}
+          </p>
+          <div className="flex items-center justify-between">
+            <div className="flex min-w-0 space-x-2 items-center">
+              {task.assignee && (
+                <div className="flex items-center space-x-1 text-xs text-gray-500">
+                  <User className="size-3" />
+                  <span>{task.assignee}</span>
+                </div>
+              )}
+              {task.due_date && (
+                <div className="flex items-center space-x-1 text-xs text-gray-500">
+                  <Calendar />
+                  <span>
+                    Due: {new Date(task.due_date).toLocaleDateString()}
+                  </span>
+                </div>
+              )}
+            </div>
+            <div
+              className={`size-2 rounded-full flex-shrink-0 ${getPriorityColor(
+                task.priority
+              )}`}
+            />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function BoardPage() {
   const { id } = useParams<{ id: string }>();
-  const { board, updateBoard, columns, createRealTask } = useBoard(id);
+  const {
+    board,
+    updateBoard,
+    columns,
+    createRealTask,
+    setColumns,
+    moveTask,
+    createColumn,
+  } = useBoard(id);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [newTitle, setNewTitle] = useState(board?.title || "");
+  const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const [isCreatingColumn, setIsCreatingColumn] = useState(false);
+  const [isEditingColumn, setIsEditingColumn] = useState<boolean>(false);
+  const [newColumnTitle, setNewColumnTitle] = useState<string>("");
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    })
+  );
   const handleUpdateBoardTitle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim() || !board) return;
@@ -224,6 +330,87 @@ export default function BoardPage() {
       await createTask(taskData);
     }
   };
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const taskId = event.active.id as string;
+    const task = columns
+      .flatMap((col) => col.tasks)
+      .find((t) => t.id === taskId);
+    if (task) {
+      setActiveTask(task);
+    }
+  };
+
+  function handleDragOver(event: DragOverEvent) {
+    const { active, over } = event;
+    if (!over) return;
+
+    const activeId = active.id as string;
+    const overId = over.id as string;
+
+    const sourceColumn = columns.find((col) =>
+      col.tasks.some((task) => task.id === activeId)
+    );
+    const targetColumn = columns.find((col) =>
+      col.tasks.some((task) => task.id === overId)
+    );
+    if (!sourceColumn || !targetColumn) return;
+    if (sourceColumn.id === targetColumn.id) {
+      const activeTaskIndex = sourceColumn.tasks.findIndex(
+        (task) => task.id === activeId
+      );
+      const overTaskIndex = targetColumn.tasks.findIndex(
+        (task) => task.id === overId
+      );
+      if (activeTaskIndex !== overTaskIndex) {
+        setColumns((prev: columnWithTasks[]) => {
+          const newCols = [...prev];
+          const col = newCols.find((col) => col.id === sourceColumn.id);
+          if (col) {
+            const tasks = Array.from(col.tasks);
+            const [removed] = tasks.splice(activeTaskIndex, 1);
+            tasks.splice(overTaskIndex, 0, removed);
+            col.tasks = tasks;
+          }
+          return newCols;
+        });
+      }
+    }
+  }
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over) return;
+
+    const activeId = active.id as string;
+    const overId = over.id as string;
+
+    const targetCol = columns.find((col) => col.id === overId);
+    if (targetCol) {
+      const sourceCol = columns.find((col) =>
+        col.tasks.some((task) => task.id === activeId)
+      );
+      if (sourceCol && sourceCol.id !== targetCol.id) {
+        await moveTask(activeId, targetCol.id, targetCol.tasks.length);
+      } else if (sourceCol && sourceCol.id === targetCol.id) {
+        const oldIndex = sourceCol.tasks.findIndex(
+          (task) => task.id === activeId
+        );
+        const newIndex = targetCol.tasks.findIndex(
+          (task) => task.id === overId
+        );
+        if (oldIndex !== newIndex) {
+          await moveTask(activeId, targetCol.id, newIndex);
+        }
+      }
+    }
+  };
+
+  async function handleCreateColumn(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (!newColumnTitle.trim() || !board) return;
+    await createColumn(newColumnTitle.trim());
+  }
   return (
     <div className="min-h-screen bg-gray-60">
       <Navbar
@@ -334,7 +521,13 @@ export default function BoardPage() {
             </DialogContent>
           </Dialog>
         </div>
-        <DndContext>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={rectIntersection}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragOver={handleDragOver}
+        >
           <div className="flex flex-col lg:flex-row lg:space-x-4">
             {columns.map((column, key) => (
               <DroppableColumn
@@ -343,7 +536,10 @@ export default function BoardPage() {
                 onCreateTask={handleCreateTask}
                 onEditColumn={() => {}}
               >
-                <SortableContext items={column.tasks.map((task) => task.id)} strategy={undefined}>
+                <SortableContext
+                  items={column.tasks.map((task) => task.id)}
+                  strategy={verticalListSortingStrategy}
+                >
                   <div className="space-y-3">
                     {column.tasks.map((task, key) => (
                       <SortableTask key={key} task={task} />
@@ -352,9 +548,55 @@ export default function BoardPage() {
                 </SortableContext>
               </DroppableColumn>
             ))}
+            <div className="w-full lg:flex-shrink-0 lg:w-80">
+              <Button
+                variant="outline"
+                className="w-full h-full min-h-[200px] border-dashed border-2 text-gray-500 hover:text-gray-700"
+                onClick={() => setIsCreatingColumn(true)}
+              >
+                <Plus />
+                Add another column
+              </Button>
+            </div>
+            <DragOverlay>
+              {activeTask ? <TaskOverlay task={activeTask} /> : null}
+            </DragOverlay>
           </div>
         </DndContext>
       </main>
+      <Dialog open={isCreatingColumn} onOpenChange={setIsEditingTitle}>
+        <DialogContent className="w-[95vw] max-w-[425px] mx-auto">
+          <DialogHeader>
+            <DialogTitle>Create New Column</DialogTitle>
+            <p className="text-sm text-gray-500">
+              Add new column to organize your tasks
+            </p>
+          </DialogHeader>
+          <form onSubmit={handleCreateColumn} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="column-title">Column Title</Label>
+              <Input
+                id="column-title"
+                value={newColumnTitle}
+                onChange={(e) => setNewColumnTitle(e.target.value)}
+                required
+                placeholder="Enter column title"
+              />
+            </div>
+            <div className="flex justify-end mt-4 space-x-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsCreatingColumn(false)}
+              >
+                {" "}
+                Cancel
+              </Button>
+              <Button type="submit">Create Column</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -27,7 +27,6 @@ export interface Task {
     sort_order: number;
     priority: 'low' | 'medium' | 'high';
     created_at: string;
-    updated_at: string;
 }
 
 export type columnWithTasks = Column & {
