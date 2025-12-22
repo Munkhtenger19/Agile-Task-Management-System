@@ -139,7 +139,7 @@ export default function HomePage() {
             <span className="text-xl font-bold">Boardly</span>
           </div>
           <div className="text-gray-500 text-sm">
-            <span>© 2025 Boardly. All rights reserved.</span>
+            <span>© 2025 Boardly. Made by Munkhtenger Munkh-Aldar. All rights reserved.</span>
           </div>
         </div>
       </footer>

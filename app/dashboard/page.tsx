@@ -101,8 +101,8 @@ export default function DashboardPage() {
 
   const handleMagicCreate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const title = formData.get("title") as string;
+    const mainInput = document.getElementById('title') as HTMLInputElement;
+    const title = mainInput?.value;
     
     if (!title) return;
 
@@ -110,15 +110,11 @@ export default function DashboardPage() {
       setIsGenerating(true);
       toast.info("Creating board and generating tasks...");
       
-      // 1. Create the board
       const newBoard = await createBoard({ title });
       if (!newBoard) throw new Error("Failed to create board");
 
-      // 2. Generate tasks with AI
       const tasks = await generateBoardTasks(title);
       
-      // 3. Add tasks to the first column (To Do)
-      // We need to fetch the columns first since createBoardWithDefaultColumns creates them
       const { data: columns } = await supabase!
         .from("columns")
         .select("*")
@@ -129,7 +125,6 @@ export default function DashboardPage() {
       if (columns && columns.length > 0) {
         const todoColumn = columns[0];
         
-        // Create tasks sequentially
         for (const task of tasks) {
           await taskService.createTask(supabase!, {
             title: task.title,
@@ -144,7 +139,6 @@ export default function DashboardPage() {
         toast.success(`Generated ${tasks.length} tasks for your new board!`);
       }
 
-      // 4. Redirect to the new board
       router.push(`/boards/${newBoard.id}`);
       
     } catch (error) {
@@ -328,22 +322,11 @@ export default function DashboardPage() {
                     </div>
 
                     <form onSubmit={handleMagicCreate}>
-                      <input type="hidden" name="title" value={(document.getElementById('title') as HTMLInputElement)?.value} />
                       <Button 
                         type="submit" 
                         variant="secondary" 
                         className="w-full text-purple-600 bg-purple-50 hover:bg-purple-100"
                         disabled={isGenerating}
-                        onClick={(e) => {
-                          // Copy value from main input to this form submission
-                          const mainInput = document.getElementById('title') as HTMLInputElement;
-                          if (!mainInput.value) {
-                            e.preventDefault();
-                            toast.error("Please enter a board title first");
-                            return;
-                          }
-                          // We need to manually trigger the submit with the title
-                        }}
                       >
                         {isGenerating ? (
                           <>

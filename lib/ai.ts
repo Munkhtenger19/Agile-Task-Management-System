@@ -12,10 +12,7 @@ export async function generateSubtasks(taskTitle: string) {
     const response = await result.response;
     const text = response.text();
     
-    // Clean up markdown code blocks if present
-    const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
-    
-    return JSON.parse(cleanText);
+    return JSON.parse(text);
   } catch (error) {
     console.error("Error generating subtasks:", error);
     return [];
