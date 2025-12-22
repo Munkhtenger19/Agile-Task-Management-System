@@ -1,9 +1,16 @@
 "use client";
 import { use, useCallback, useEffect, useState } from "react";
-import { boardDataService, boardService, columnService, taskService } from "../services";
+import {
+  boardDataService,
+  boardService,
+  columnService,
+  taskService,
+} from "../services";
 import { Board, Column, columnWithTasks, Task } from "../supabase/models";
 import { useUser } from "@clerk/nextjs";
 import { useSupabase } from "../supabase/SupabaseProvider";
+import { generateSubtasks, generateBoardTasks } from "@/lib/ai";
+import { toast } from "sonner";
 
 export function useBoards() {
   const { user } = useUser();
@@ -11,7 +18,8 @@ export function useBoards() {
   const [boards, setBoards] = useState<Board[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
+  const [columns, setColumns] = useState<columnWithTasks[]>([]);
+  
   const loadBoards = useCallback(async () => {
     if (!user) throw new Error("User not authenticated");
     try {
@@ -45,8 +53,13 @@ export function useBoards() {
         { ...boardData, userId: user.id }
       );
       setBoards((prev) => [newBoard, ...prev]);
+      toast.success("Board created successfully");
+      return newBoard;
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Unknown error");
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setError(message);
+      toast.error(`Failed to create board: ${message}`);
+      throw error;
     }
   };
 
@@ -92,87 +105,179 @@ export function useBoard(boardId: string) {
     }
   }, [supabase, loadBoard, boardId]);
   console.log("board", board);
-  
-  async function updateBoard(boardId: string, updates: Partial<Board>){
-    try{
-      const updatedBoard = await boardService.updateBoard(supabase!, boardId, updates);
+
+  async function updateBoard(boardId: string, updates: Partial<Board>) {
+    try {
+      const updatedBoard = await boardService.updateBoard(
+        supabase!,
+        boardId,
+        updates
+      );
       setBoard(updatedBoard);
+      toast.success("Board updated successfully");
       return updatedBoard;
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Unknown error");
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setError(message);
+      toast.error(`Failed to update board: ${message}`);
     }
   }
-  async function createRealTask (columnId: string, taskData: {
-    title: string;
-    description?: string;
-    assignee?: string;
-    priority?: "low" | "medium" | "high";
-    dueDate?: string;
-  }) {
+  async function createRealTask(
+    columnId: string,
+    taskData: {
+      title: string;
+      description?: string;
+      assignee?: string;
+      priority?: "low" | "medium" | "high";
+      dueDate?: string;
+    }
+  ) {
     try {
+      // AI Feature: Auto-generate subtasks description if description is empty
+      let description = taskData.description;
+      if (!description && taskData.title.length > 10) {
+        toast.info("Generating AI subtasks...");
+        const subtasks = await generateSubtasks(taskData.title);
+        if (subtasks && subtasks.length > 0) {
+          description = "AI Generated Subtasks:\n" + subtasks.map((t: string) => `- [ ] ${t}`).join("\n");
+          toast.success("AI subtasks generated!");
+        }
+      }
+
       const newTask = await taskService.createTask(supabase!, {
         title: taskData.title,
-        description: taskData.description || null,
+        description: description || null,
         column_id: columnId,
         assignee: taskData.assignee || null,
         due_date: taskData.dueDate || null,
         priority: taskData.priority || "medium",
-        sort_order: columns.find(col => col.id === columnId)?.tasks.length || 0,
+        sort_order:
+          columns.find((col) => col.id === columnId)?.tasks.length || 0,
       });
-      setColumns((prev) => prev.map(col => col.id === columnId ? {
-        ...col,
-        tasks: [...col.tasks, newTask]
-      } : col))
+      setColumns((prev) =>
+        prev.map((col) =>
+          col.id === columnId
+            ? {
+                ...col,
+                tasks: [...col.tasks, newTask],
+              }
+            : col
+        )
+      );
+      toast.success("Task created successfully");
 
       return newTask;
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Failed to create task");
+      const message = error instanceof Error ? error.message : "Failed to create task";
+      setError(message);
+      toast.error(message);
     }
   }
 
-  async function moveTask(taskId: string, newColumnId: string, newSortOrder: number) {
-    try{
+  async function moveTask(
+    taskId: string,
+    newColumnId: string,
+    newSortOrder: number
+  ) {
+    try {
       await taskService.moveTask(supabase!, taskId, newColumnId, newSortOrder);
-      setColumns(prev=>{
+      setColumns((prev) => {
         // const newCols = [...prev]
         let taskToMove: Task | null = null;
-        const newCols = prev.map(col=>{
-          const taskIdx = col.tasks.findIndex(task => task.id === taskId)
-          if(taskIdx !== -1){
-            taskToMove = col.tasks[taskIdx]
-            col.tasks.splice(taskIdx, 1)
+        const newCols = prev.map((col) => {
+          const taskIdx = col.tasks.findIndex((task) => task.id === taskId);
+          if (taskIdx !== -1) {
+            taskToMove = col.tasks[taskIdx];
+            col.tasks.splice(taskIdx, 1);
             // col.tasks.splice(newSortOrder, 0, taskToMove)
           }
           return col;
-        })
-        if(taskToMove){
-          const newCol = newCols.find(col => col.id === newColumnId)
-          if(newCol){
-            newCol.tasks.splice(newSortOrder, 0, taskToMove)
+        });
+        if (taskToMove) {
+          const newCol = newCols.find((col) => col.id === newColumnId);
+          if (newCol) {
+            newCol.tasks.splice(newSortOrder, 0, taskToMove);
           }
         }
-        return newCols
-      })
+        return newCols;
+      });
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Failed to move task");
+      const message = error instanceof Error ? error.message : "Failed to move task";
+      setError(message);
+      toast.error(message);
     }
   }
 
   async function createColumn(title: string) {
-    if(!board || !user) throw new Error("Board not loaded")
+    if (!board || !user) throw new Error("Board not loaded");
     try {
       const newColumn = await columnService.createColumn(supabase!, {
         title,
         board_id: board.id,
         sort_order: columns.length,
-        user_id: user.id
+        user_id: user.id,
       });
       setColumns((prev) => [...prev, { ...newColumn, tasks: [] }]);
+      toast.success("Column created successfully");
       return newColumn;
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Failed to create column");
+      const message = error instanceof Error ? error.message : "Failed to create column";
+      setError(message);
+      toast.error(message);
     }
   }
+
+  async function updateColumn(colId: string, title: string) {
+    try {
+      const newColumn = await columnService.updateColumnTitle(
+        supabase!,
+        colId,
+        title
+      );
+      setColumns((prev) => prev.map(col => col.id === colId ? { ...col, ...newColumn } : col));
+      toast.success("Column updated successfully");
+      return newColumn;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to update column";
+      setError(message);
+      toast.error(message);
+    }
+  }
+
+  async function generateTasks() {
+    if (!board) return;
+    try {
+      toast.info("Generating tasks with AI...");
+      const tasks = await generateBoardTasks(board.title);
+      
+      if (!tasks || tasks.length === 0) {
+        toast.error("Failed to generate tasks");
+        return;
+      }
+
+      // Find the first column (usually "To Do")
+      const targetColumn = columns[0];
+      if (!targetColumn) {
+        toast.error("No columns found to add tasks to");
+        return;
+      }
+
+      // Create tasks sequentially
+      for (const task of tasks) {
+        await createRealTask(targetColumn.id, {
+          title: task.title,
+          description: task.description,
+          priority: task.priority,
+        });
+      }
+      
+      toast.success(`Generated ${tasks.length} tasks successfully!`);
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to generate tasks");
+    }
+  }
+
   return {
     board,
     columns,
@@ -183,5 +288,7 @@ export function useBoard(boardId: string) {
     setColumns,
     moveTask,
     createColumn,
+    updateColumn,
+    generateTasks,
   };
 }

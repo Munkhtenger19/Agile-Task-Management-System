@@ -87,6 +87,23 @@ export const columnService = {
 
     return data;
   },
+
+  async updateColumnTitle(
+    supabase: SupabaseClient,
+    colId: string,
+    title: string
+  ): Promise<Column> {
+    const { data, error } = await supabase
+      .from("columns")
+      .update({ title })
+      .eq("id", colId)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return data;
+  },
 };
 
 export const taskService = {
@@ -210,4 +227,10 @@ export const boardDataService = {
       columnsWithTasks,
     };
   },
+
+  // async getBoardWithTaskCount(supabase: SupabaseClient){
+  //   const {data, error} = supabase.from("columns").select("")
+  //   // first get boards table and matching columns then get tasks from columns
+
+  // }
 };
