@@ -1,12 +1,12 @@
 "use client";
-import { use, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   boardDataService,
   boardService,
   columnService,
   taskService,
 } from "../services";
-import { Board, Column, columnWithTasks, Task } from "../supabase/models";
+import { Board, columnWithTasks, Task } from "../supabase/models";
 import { useUser } from "@clerk/nextjs";
 import { useSupabase } from "../supabase/SupabaseProvider";
 import { generateSubtasks, generateBoardTasks } from "@/lib/ai";
@@ -18,14 +18,13 @@ export function useBoards() {
   const [boards, setBoards] = useState<Board[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [columns, setColumns] = useState<columnWithTasks[]>([]);
   
   const loadBoards = useCallback(async () => {
-    if (!user) throw new Error("User not authenticated");
+    if (!user || !supabase) return;
     try {
       setLoading(true);
       setError(null);
-      const boards = await boardDataService.getBoards(supabase!, user.id);
+      const boards = await boardDataService.getBoards(supabase, user.id);
       setBoards(boards);
     } catch (error) {
       setError(
@@ -47,9 +46,10 @@ export function useBoards() {
     color?: string;
   }) => {
     if (!user) throw new Error("User not authenticated");
+    if (!supabase) throw new Error("Supabase client not initialized");
     try {
       const newBoard = await boardDataService.createBoardWithDefaultColumns(
-        supabase!,
+        supabase,
         { ...boardData, userId: user.id }
       );
       setBoards((prev) => [newBoard, ...prev]);
@@ -127,7 +127,6 @@ export function useBoard(boardId: string) {
     taskData: {
       title: string;
       description?: string;
-      assignee?: string;
       priority?: "low" | "medium" | "high";
       dueDate?: string;
     }
@@ -148,7 +147,7 @@ export function useBoard(boardId: string) {
         title: taskData.title,
         description: description || null,
         column_id: columnId,
-        assignee: taskData.assignee || null,
+        assignee: null,
         due_date: taskData.dueDate || null,
         priority: taskData.priority || "medium",
         sort_order:
@@ -182,14 +181,12 @@ export function useBoard(boardId: string) {
     try {
       await taskService.moveTask(supabase!, taskId, newColumnId, newSortOrder);
       setColumns((prev) => {
-        // const newCols = [...prev]
         let taskToMove: Task | null = null;
         const newCols = prev.map((col) => {
           const taskIdx = col.tasks.findIndex((task) => task.id === taskId);
           if (taskIdx !== -1) {
             taskToMove = col.tasks[taskIdx];
             col.tasks.splice(taskIdx, 1);
-            // col.tasks.splice(newSortOrder, 0, taskToMove)
           }
           return col;
         });
@@ -244,11 +241,11 @@ export function useBoard(boardId: string) {
     }
   }
 
-  async function generateTasks() {
+  async function generateTasks(description?: string) {
     if (!board) return;
     try {
       toast.info("Generating tasks with AI...");
-      const tasks = await generateBoardTasks(board.title);
+      const tasks = await generateBoardTasks(board.title, description);
       
       if (!tasks || tasks.length === 0) {
         toast.error("Failed to generate tasks");
@@ -256,7 +253,7 @@ export function useBoard(boardId: string) {
       }
 
       // Find the first column (usually "To Do")
-      const targetColumn = columns[0];
+      const targetColumn = columns.sort((a, b) => a.sort_order - b.sort_order)[0];
       if (!targetColumn) {
         toast.error("No columns found to add tasks to");
         return;

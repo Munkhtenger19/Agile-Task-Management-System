@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useBoard } from "@/lib/hooks/useBoards";
 import { columnWithTasks, Task } from "@/lib/supabase/models";
 import { DialogTrigger } from "@radix-ui/react-dialog";
-import { Plus } from "lucide-react";
+import { Plus, Sparkles, Loader2, Calendar } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import {
@@ -34,6 +34,7 @@ import {
 } from "@dnd-kit/sortable";
 import { DroppableColumn, CreateTaskData } from "@/components/board/DroppableColumn";
 import { SortableTask } from "@/components/board/SortableTask";
+import { Badge } from "@/components/ui/badge";
 
 export default function BoardPage() {
   const params = useParams();
@@ -53,9 +54,11 @@ export default function BoardPage() {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [isEditBoardOpen, setIsEditBoardOpen] = useState(false);
   const [isCreateColumnOpen, setIsCreateColumnOpen] = useState(false);
+  const [isGenerateTasksOpen, setIsGenerateTasksOpen] = useState(false);
   const [editingColumn, setEditingColumn] = useState<columnWithTasks | null>(
     null
   );
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -65,7 +68,16 @@ export default function BoardPage() {
     })
   );
 
-  if (loading) return <div>Loading...</div>;
+  if (loading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center gap-2">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <p className="text-sm font-medium text-gray-500">Loading board...</p>
+        </div>
+      </div>
+    );
+  }
   if (error) return <div>Error: {error}</div>;
   if (!board) return <div>Board not found</div>;
 
@@ -181,7 +193,7 @@ export default function BoardPage() {
       <Navbar
         boardTitle={board.title}
         onEditBoard={() => setIsEditBoardOpen(true)}
-        onGenerateTasks={generateTasks}
+        onGenerateTasks={() => setIsGenerateTasksOpen(true)}
       />
 
       <main className="flex-1 overflow-x-auto overflow-y-hidden">
@@ -206,7 +218,7 @@ export default function BoardPage() {
                 >
                   <div className="space-y-2 min-h-[10px]">
                     {column.tasks.map((task) => (
-                      <SortableTask key={task.id} task={task} />
+                      <SortableTask key={task.id} task={task} onClick={setSelectedTask} />
                     ))}
                   </div>
                 </SortableContext>
@@ -344,6 +356,79 @@ export default function BoardPage() {
               Save Changes
             </Button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Generate Tasks Dialog */}
+      <Dialog open={isGenerateTasksOpen} onOpenChange={setIsGenerateTasksOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Magic Breakdown</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              const description = formData.get("description") as string;
+              setIsGenerateTasksOpen(false);
+              await generateTasks(description);
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <Label>What is this board about?</Label>
+              <Textarea
+                name="description"
+                placeholder="Describe your project or goal to help AI generate better tasks..."
+                className="min-h-[100px]"
+              />
+            </div>
+            <Button type="submit" className="w-full">
+              <Sparkles className="mr-2 h-4 w-4" />
+              Generate Tasks
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Task Details Dialog */}
+      <Dialog open={!!selectedTask} onOpenChange={(open) => !open && setSelectedTask(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+              {selectedTask?.title}
+              <Badge variant="secondary" className={
+                selectedTask?.priority === 'high' ? 'bg-red-500 text-white' :
+                selectedTask?.priority === 'medium' ? 'bg-yellow-500 text-white' :
+                'bg-green-500 text-white'
+              }>
+                {selectedTask?.priority}
+              </Badge>
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium text-gray-500">Description</h4>
+              <div className="bg-gray-50 p-4 rounded-lg text-sm whitespace-pre-wrap">
+                {selectedTask?.description || "No description provided."}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium text-gray-500">Due Date</h4>
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-gray-500" />
+                  <span className="text-sm">
+                    {selectedTask?.due_date 
+                      ? new Date(selectedTask.due_date).toLocaleDateString() 
+                      : "No due date"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

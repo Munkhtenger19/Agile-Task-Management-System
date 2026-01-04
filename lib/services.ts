@@ -195,7 +195,7 @@ export const boardDataService = {
 
     await Promise.all(
       defaultColumns.map((col) => {
-        columnService.createColumn(supabase, {
+        return columnService.createColumn(supabase, {
           ...col,
           board_id: board.id,
           user_id: boardData.userId,
@@ -227,10 +227,4 @@ export const boardDataService = {
       columnsWithTasks,
     };
   },
-
-  // async getBoardWithTaskCount(supabase: SupabaseClient){
-  //   const {data, error} = supabase.from("columns").select("")
-  //   // first get boards table and matching columns then get tasks from columns
-
-  // }
 };

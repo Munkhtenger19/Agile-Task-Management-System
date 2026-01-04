@@ -24,7 +24,6 @@ import {
 export interface CreateTaskData {
   title: string;
   description?: string;
-  assignee?: string;
   priority: "low" | "medium" | "high";
   dueDate?: string;
 }
@@ -50,7 +49,6 @@ export function DroppableColumn({
     onCreateTask({
       title: formData.get("title") as string,
       description: formData.get("description") as string,
-      assignee: formData.get("assignee") as string,
       priority: (formData.get("priority") as "low" | "medium" | "high") || "medium",
       dueDate: formData.get("dueDate") as string,
     });
@@ -126,14 +124,6 @@ export function DroppableColumn({
                     name="description"
                     placeholder="Enter task description"
                     rows={3}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Assignee</Label>
-                  <Input
-                    id="assignee"
-                    name="assignee"
-                    placeholder="Who should do this?"
                   />
                 </div>
 

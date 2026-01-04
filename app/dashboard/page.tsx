@@ -15,7 +15,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,16 +28,11 @@ import {
   Plus,
   Rocket,
   Search,
-  Sparkles,
   SquareKanban,
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { generateBoardTasks } from "@/lib/ai";
-import { toast } from "sonner";
-import { taskService } from "@/lib/services";
-import { useSupabase } from "@/lib/supabase/SupabaseProvider";
 
 export default function DashboardPage() {
   const { user } = useUser();
@@ -46,9 +40,8 @@ export default function DashboardPage() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [newBoardTitle, setNewBoardTitle] = useState("");
   const router = useRouter();
-  const { supabase } = useSupabase();
   const [filters, setFilters] = useState({
     search: "",
     dateRange: { start: null as string | null, end: null as string | null },
@@ -83,14 +76,13 @@ export default function DashboardPage() {
 
   const handleCreateBoard = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const title = formData.get("title") as string;
     
-    if (!title) return;
+    if (!newBoardTitle) return;
 
     try {
-      const newBoard = await createBoard({ title });
+      const newBoard = await createBoard({ title: newBoardTitle });
       setIsCreateDialogOpen(false);
+      setNewBoardTitle("");
       if (newBoard) {
         router.push(`/boards/${newBoard.id}`);
       }
@@ -99,62 +91,13 @@ export default function DashboardPage() {
     }
   };
 
-  const handleMagicCreate = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const mainInput = document.getElementById('title') as HTMLInputElement;
-    const title = mainInput?.value;
-    
-    if (!title) return;
-
-    try {
-      setIsGenerating(true);
-      toast.info("Creating board and generating tasks...");
-      
-      const newBoard = await createBoard({ title });
-      if (!newBoard) throw new Error("Failed to create board");
-
-      const tasks = await generateBoardTasks(title);
-      
-      const { data: columns } = await supabase!
-        .from("columns")
-        .select("*")
-        .eq("board_id", newBoard.id)
-        .order("sort_order", { ascending: true })
-        .limit(1);
-
-      if (columns && columns.length > 0) {
-        const todoColumn = columns[0];
-        
-        for (const task of tasks) {
-          await taskService.createTask(supabase!, {
-            title: task.title,
-            description: task.description,
-            column_id: todoColumn.id,
-            priority: task.priority,
-            sort_order: 0,
-            assignee: null,
-            due_date: null
-          });
-        }
-        toast.success(`Generated ${tasks.length} tasks for your new board!`);
-      }
-
-      router.push(`/boards/${newBoard.id}`);
-      
-    } catch (error) {
-      console.error("Magic create failed:", error);
-      toast.error("Something went wrong during magic creation");
-    } finally {
-      setIsGenerating(false);
-      setIsCreateDialogOpen(false);
-    }
-  };
-
   if (loading) {
     return (
-      <div>
-        <Loader2 />
-        <span>Loading your boards...</span>
+      <div className="flex h-screen w-full items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center gap-2">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <p className="text-sm font-medium text-gray-500">Loading your boards...</p>
+        </div>
       </div>
     );
   }
@@ -234,23 +177,6 @@ export default function DashboardPage() {
               </div>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="p-4 sm:p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs sm:text-sm font-medium text-gray-600">
-                    Total Boards
-                  </p>
-                  <p className="text-xl sm:text-2xl font-bold text-gray-900">
-                    {boards.length}
-                  </p>
-                </div>
-                <div className="h-10 w-10 sm:h-12 sm:w-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <SquareKanban className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         </div>
         <div className="mb-6 sm:mb-8">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 sm:mb-6 space-y-4 sm:space-y-0">
@@ -287,63 +213,10 @@ export default function DashboardPage() {
                 Filter
               </Button>
 
-              <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button>
-                    <Plus />
-                    Create Board
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Create New Board</DialogTitle>
-                  </DialogHeader>
-                  
-                  <div className="grid gap-4 py-4">
-                    <form id="create-board-form" onSubmit={handleCreateBoard} className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="title">Board Title</Label>
-                        <Input id="title" name="title" placeholder="e.g., Marketing Campaign" required />
-                      </div>
-                      <Button type="submit" className="w-full" disabled={isGenerating}>
-                        Create Board
-                      </Button>
-                    </form>
-
-                    <div className="relative">
-                      <div className="absolute inset-0 flex items-center">
-                        <span className="w-full border-t" />
-                      </div>
-                      <div className="relative flex justify-center text-xs uppercase">
-                        <span className="bg-background px-2 text-muted-foreground">
-                          Or use AI
-                        </span>
-                      </div>
-                    </div>
-
-                    <form onSubmit={handleMagicCreate}>
-                      <Button 
-                        type="submit" 
-                        variant="secondary" 
-                        className="w-full text-purple-600 bg-purple-50 hover:bg-purple-100"
-                        disabled={isGenerating}
-                      >
-                        {isGenerating ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Generating...
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="mr-2 h-4 w-4" />
-                            Magic Create & Breakdown
-                          </>
-                        )}
-                      </Button>
-                    </form>
-                  </div>
-                </DialogContent>
-              </Dialog>
+              <Button onClick={() => setIsCreateDialogOpen(true)}>
+                <Plus />
+                Create Board
+              </Button>
             </div>
           </div>
           <div className="relative mb-4 sm:mb-6">
@@ -358,9 +231,7 @@ export default function DashboardPage() {
             />
           </div>
 
-          {boards.length === 0 ? (
-            <div>No boards yet</div>
-          ) : viewMode === "grid" ? (
+          {viewMode === "grid" ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
               {filteredBoards.map((board, key) => (
                 <Link href={`/boards/${board.id}`} key={key}>
@@ -395,8 +266,11 @@ export default function DashboardPage() {
                 </Link>
               ))}
 
-              <Card className="border-2 border-dashed border-gray-300 hover:border-blue-400 transition-colors cursor-pointer group">
-                <CardContent className="p-4 sm:p-6 flex flex-col items-center justify-center h-full min-h-[200px]">
+              <Card 
+                className="border-2 border-dashed border-gray-300 hover:border-blue-400 transition-colors cursor-pointer group"
+                onClick={() => setIsCreateDialogOpen(true)}
+              >
+                <CardContent className="p-4 sm:p-6 flex flex-col items-center justify-center h-full">
                   <Plus className="h-6 w-6 sm:h-8 sm:w-8 text-gray-400 group-hover:text-blue-600 mb-2" />
                   <p className="text-sm sm:text-base text-gray-600 group-hover:text-blue-600 font-medium">
                     Create new board
@@ -406,7 +280,7 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div>
-              {boards.map((board, key) => (
+              {filteredBoards.map((board, key) => (
                 <div key={key} className={key > 0 ? "mt-4" : ""}>
                   <Link href={`/boards/${board.id}`}>
                     <Card className="hover:shadow-lg transition-shadow cursor-pointer group">
@@ -441,8 +315,11 @@ export default function DashboardPage() {
                 </div>
               ))}
 
-              <Card className="mt-4 border-2 border-dashed border-gray-300 hover:border-blue-400 transition-colors cursor-pointer group">
-                <CardContent className="p-4 sm:p-6 flex flex-col items-center justify-center h-full min-h-[200px]">
+              <Card 
+                className="mt-4 border-2 border-dashed border-gray-300 hover:border-blue-400 transition-colors cursor-pointer group"
+                onClick={() => setIsCreateDialogOpen(true)}
+              >
+                <CardContent className="p-4 sm:p-6 flex flex-col items-center justify-center h-full">
                   <Plus className="h-6 w-6 sm:h-8 sm:w-8 text-gray-400 group-hover:text-blue-600 mb-2" />
                   <p className="text-sm sm:text-base text-gray-600 group-hover:text-blue-600 font-medium">
                     Create new board
@@ -453,6 +330,34 @@ export default function DashboardPage() {
           )}
         </div>
       </main>
+
+      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Board</DialogTitle>
+          </DialogHeader>
+          
+          <div className="grid gap-4 py-4">
+            <form id="create-board-form" onSubmit={handleCreateBoard} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="title">Board Title</Label>
+                <Input 
+                  id="title" 
+                  name="title" 
+                  placeholder="e.g., Marketing Campaign" 
+                  required 
+                  value={newBoardTitle}
+                  onChange={(e) => setNewBoardTitle(e.target.value)}
+                />
+              </div>
+              <Button type="submit" className="w-full">
+                Create Board
+              </Button>
+            </form>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isFilterOpen} onOpenChange={setIsFilterOpen}>
         <DialogContent className="w-[95vw] max-w-[425px] mx-auto">
           <DialogHeader>

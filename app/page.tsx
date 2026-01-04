@@ -11,9 +11,7 @@ import {
 } from "@/components/ui/card";
 import {
   ArrowRight,
-  CheckCircle2,
   Layout,
-  Shield,
   SquareKanban,
   Users,
   Zap,
@@ -22,30 +20,7 @@ import Link from "next/link";
 import Navbar from "@/components/navbar";
 
 export default function HomePage() {
-  const { isSignedIn, user } = useUser();
-
-  const features = [
-    {
-      icon: CheckCircle2,
-      title: "Task Management",
-      description: "Organize your tasks with intuitive drag-and-drop boards",
-    },
-    {
-      icon: Users,
-      title: "Team Collaboration",
-      description: "Work together with your team in real-time",
-    },
-    {
-      icon: Zap,
-      title: "Lightning Fast",
-      description: "Built with Next.js 15 for optimal performance",
-    },
-    {
-      icon: Shield,
-      title: "Secure",
-      description: "Enterprise-grade security with Clerk authentication",
-    },
-  ];
+  const { isSignedIn } = useUser();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
